@@ -25,9 +25,7 @@ jobs:
         run: |
           git config user.name "DR Engine Bot"
           git config user.email "bot@dr-engine"
-          git stash
-          git pull --rebase origin main
-          git stash pop
           git add dr_results.json
-          git diff --cached --quiet || git commit -m "update DR results $(date -u +'%Y-%m-%d %H:%M')"
-          git push origin main
+          git diff --cached --quiet || git commit -m "update DR results $(date -u +%Y-%m-%d\ %H:%M)"
+          git pull --rebase origin main -X theirs || git rebase --abort
+          git push
