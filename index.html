@@ -314,8 +314,11 @@ function render(){
     const defPct=d.worst<0?Math.min(60,100*(-d.worst)/capRef):0;
     const tr=document.createElement('tr');
     const cell=(i)=>{const v=d.apps[i];return '<td class="mono col-app'+(v===0?' zero':'')+'">'+(v||'·')+'</td>';};
-    tr.innerHTML=
-      '<td class="l dc">'+d.dc+'</td>'+
+      const rn=RENAME[d.dc];
+      const dcCell=rn
+        ?'<td class="l dc">'+rn+'<div class="region" style="font-size:10px;opacity:.6">was: '+d.dc+'</div></td>'
+        :'<td class="l dc">'+d.dc+'</td>';
+    tr.innerHTML=dcCell+
       '<td class="l region">'+d.region+'</td>'+
       '<td><div class="bar"><i class="cap"></i><i class="dem" style="width:'+demPct+'%"></i><i class="ovf" style="width:'+defPct+'%"></i></div></td>'+
       '<td class="mono">'+fmt(d.peak)+'</td>'+
