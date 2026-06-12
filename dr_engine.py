@@ -238,7 +238,6 @@ try:
 except Exception as e:
     print(f"  Rename map skipped: {e}")
 
-
 # ---- MAPPING (for export offsets) ----
 print("\nLoading mapping...")
 try:
