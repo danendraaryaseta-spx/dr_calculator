@@ -263,8 +263,9 @@ function buildDCs(){
   const out=[];
   for(const k in map){
     const m=map[k];
-    // If capacity is 0, don't show any DR needs
-    const hasCap=m.sumCap>0;
+    const worst=Math.min(m.wGv5,m.wGid);
+    // If capacity is 0 or peak proj == |worst gap| (no capacity on peak day), skip DR
+    const hasCap=m.sumCap>0 && Math.abs(m.peak+worst)>10;
     const aNopol=hasCap?truckFromGap(m.wGid,trips):0;
     const aV5=hasCap?truckFromGap(m.wGv5,trips):0;
     const nz=[aNopol,aV5].filter(x=>x>0);
@@ -272,7 +273,6 @@ function buildDCs(){
     const aP75=Math.round(quantile([aNopol,aV5,aMin],0.75));
     const apps=[aNopol,aV5,aMin,aP75];
     const rec=Math.round(quantile(apps,0.8));                     // P80 recommended (BU)
-    const worst=Math.min(m.wGv5,m.wGid);
     const total=m.sumFm+m.sumLm||1;
     const fmPct=m.sumFm/total, lmPct=m.sumLm/total;
     const drFm=Math.round(rec*fmPct), drLm=rec-drFm;
