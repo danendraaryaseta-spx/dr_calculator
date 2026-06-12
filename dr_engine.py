@@ -199,7 +199,7 @@ print(f"\nRecommended additional DR ({dates[0]} -> {dates[-1]}): {tot} trucks")
 # ---- OUTPUT ----
 payload = {
     "meta": {
-        "generated": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "generated": (dt.datetime.utcnow() + dt.timedelta(hours=7)).strftime("%Y-%m-%d %H:%M WIB"),
         "params": {"parcels_per_truck":PARCELS_PER_TRUCK, "utilization":UTILIZATION,
                    "trips_default":TRIPS_LM, "threshold":THRESHOLD, "overprojection":OVERPROJECTION},
         "dates": dates
