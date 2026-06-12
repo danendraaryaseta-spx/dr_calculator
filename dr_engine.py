@@ -127,6 +127,21 @@ for socc in SCOL["soc"]:
 cap_v5 = prim.add(drop, fill_value=0).rename_axis("dc").rename("cap_v5").reset_index()
 print(f"  DCs with scheduled capacity: {len(cap_v5)}")
 
+# Debug: check top DCs
+    print("\n  Top 5 cap_v5:")
+    print(cap_v5.nlargest(5, "cap_v5").to_string())
+    print("\n  Top 5 demand DCs:")
+    print(demand.groupby("dc")["proj"].max().nlargest(5).to_string())
+    
+    # Check merge
+    demand_dcs = set(demand["dc"].unique())
+    cap_dcs = set(cap_v5["dc"].unique())
+    matched = demand_dcs & cap_dcs
+    print(f"\n  Demand DCs: {len(demand_dcs)} | Cap DCs: {len(cap_dcs)} | Matched: {len(matched)}")
+    if len(matched) < 5:
+        print("  !! LOW MATCH — sample demand DCs:", list(demand_dcs)[:5])
+        print("  !! sample cap DCs:", list(cap_dcs)[:5])
+
 # ---- IDEAL CAPACITY ----
 print("\nComputing ideal capacity...")
 u = load("data_unit_nasional")
