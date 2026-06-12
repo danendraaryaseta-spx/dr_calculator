@@ -353,7 +353,7 @@ function boot(data,live){
   DATA=data;
   document.getElementById('src').innerHTML=
     '<div><span class="dot'+(live?'':' embed')+'"></span>'+(live?'Live from dr_results.json':'Preview (embedded sample)')+'</div>'+
-    '<div><b>last refresh</b> '+(data.meta.generated||'—')+'</div>';
+    '<div><b>generated</b> '+(data.meta.generated||'—')+'</div>';
   document.getElementById('note').innerHTML=
     'Engine: per DC, the worst (most negative) gap of <b>scheduled capacity − projected volume</b> inside the selected window is converted to trucks via floor(−gap ÷ ('+PT+' × '+UTIL+' × trips)), only when the shortfall is worse than '+THRESH+' parcels. '+
     '<b>Nopol</b> = vs ideal fleet capacity, <b>v5</b> = vs the live schedule. '+
@@ -380,6 +380,10 @@ function boot(data,live){
     const baseDate=document.getElementById('cstart').value;
     const cdays=parseInt(document.getElementById('cdays').value)||4;
     const fmtD=dt=>{const y=dt.getFullYear(),mo=String(dt.getMonth()+1).padStart(2,'0'),dy=String(dt.getDate()).padStart(2,'0');return y+'-'+mo+'-'+dy;};
+    const JAVA=['Jabodetabek','Jawa Barat','Jawa Tengah','Jawa Timur'];
+    const isJava=reg=>JAVA.includes(reg);
+    const FM_TIME='13:00';   // FM nationwide
+    const LM_JAVA_TIME='08:00';  // LM in Java
 
     // Helper: generate date list for a period
     function datelist(startStr, numDays){
@@ -425,9 +429,9 @@ function boot(data,live){
             'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
             'Origin State':mp.state,
             'Contract Period Start Date':fmtD(b.start),
-            'Contract Period Start Time (HO)':mp.time,
+            'Contract Period Start Time (HO)':FM_TIME,
             'Contract Period End Date':fmtD(b.end),
-            'Contract Period End Time':mp.time,
+            'Contract Period End Time':FM_TIME,
             'Total Rent Days':b.days,
             'Rent Hours (12/24 Jam)':'24',
             'Services':'Daily Rent',
@@ -446,13 +450,14 @@ function boot(data,live){
         lmStart.setDate(lmStart.getDate()+mp.offset);
         const lmEnd=new Date(lmStart);
         lmEnd.setDate(lmEnd.getDate()+cdays);
+        const lmTime=isJava(d.region)?LM_JAVA_TIME:mp.time;
         rows.push({
           'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
           'Origin State':mp.state,
           'Contract Period Start Date':fmtD(lmStart),
-          'Contract Period Start Time (HO)':mp.time,
+          'Contract Period Start Time (HO)':lmTime,
           'Contract Period End Date':fmtD(lmEnd),
-          'Contract Period End Time':mp.time,
+          'Contract Period End Time':lmTime,
           'Total Rent Days':cdays,
           'Rent Hours (12/24 Jam)':'24',
           'Services':'Daily Rent',
