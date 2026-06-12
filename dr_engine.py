@@ -221,6 +221,24 @@ if len(check):
     print(f"    cap_v5={check['cap_v5'].iloc[0]:,.0f}  cap_ideal={check['cap_ideal'].iloc[0]:,.0f}")
     print(f"    peak_proj={check['proj'].max():,.0f}  worst_gap_v5={(check['cap_v5']-check['proj']).min():,.0f}")
 
+# ---- RENAME MAP (multidrop origin swap) ----
+print("\nLoading rename map...")
+try:
+    rn = loaded.get("rename", load(TAB["rename"]))
+    rename_map = {}
+    for _, row in rn.iterrows():
+        orig = str(row.get("Origin", "")).strip()
+        change = str(row.get("Change to", "")).strip()
+        if orig and change:
+            rename_map[orig] = change
+    for r in records:
+        if r["dc"] in rename_map:
+            r["rename_to"] = rename_map[r["dc"]]
+    print(f"  Rename map: {rename_map}")
+except Exception as e:
+    print(f"  Rename map skipped: {e}")
+
+
 # ---- MAPPING (for export offsets) ----
 print("\nLoading mapping...")
 try:
