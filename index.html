@@ -353,7 +353,7 @@ function boot(data,live){
   DATA=data;
   document.getElementById('src').innerHTML=
     '<div><span class="dot'+(live?'':' embed')+'"></span>'+(live?'Live from dr_results.json':'Preview (embedded sample)')+'</div>'+
-    '<div><b>generated</b> '+(data.meta.generated||'—')+'</div>';
+    '<div><b>last refresh</b> '+(data.meta.generated||'—')+'</div>';
   document.getElementById('note').innerHTML=
     'Engine: per DC, the worst (most negative) gap of <b>scheduled capacity − projected volume</b> inside the selected window is converted to trucks via floor(−gap ÷ ('+PT+' × '+UTIL+' × trips)), only when the shortfall is worse than '+THRESH+' parcels. '+
     '<b>Nopol</b> = vs ideal fleet capacity, <b>v5</b> = vs the live schedule. '+
