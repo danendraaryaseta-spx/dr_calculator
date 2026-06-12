@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#0d1117; --panel:#151b23; --panel-2:#1b232d; --line:#262e3a;
@@ -167,6 +168,16 @@
     <div id="empty" class="empty" style="display:none">No DC needs additional rent in this window.</div>
   </div>
 
+  <div class="controls" style="margin-top:18px;background:var(--panel-2);border-color:var(--accent)">
+    <div class="ctl"><label style="color:var(--accent)">Export to Excel (Template ke VM)</label></div>
+    <div class="ctl"><label for="cstart">Contract start</label><input type="date" id="cstart"></div>
+    <div class="ctl"><label for="cdays">Contract days</label><input type="number" id="cdays" value="4" min="1" max="30" style="width:60px"></div>
+    <div class="spacer"></div>
+    <div class="ctl"><label>&nbsp;</label>
+      <button id="exportBtn" style="background:var(--accent);color:#000;font-weight:600;border-color:var(--accent)">Export .xlsx</button>
+    </div>
+  </div>
+
   <div class="legend">
     <span><i class="sw" style="background:var(--cap);opacity:.5"></i> scheduled capacity</span>
     <span><i class="sw" style="background:var(--dem)"></i> projected demand</span>
@@ -178,7 +189,7 @@
 
 <script>
 const PT=4400, UTIL=0.9, THRESH=-1000;
-let DATA=null, DATES=[], SORT={key:'rec',dir:-1}, OVR={};
+let DATA=null, DATES=[], SORT={key:'rec',dir:-1}, OVR={}, MAPPING={};
 
 function truckFromGap(gap, trips){            // replicate BO/BQ: floor(max(1, -gap/(4400*util*trips)))
   if(gap > THRESH) return 0;
@@ -335,6 +346,59 @@ function boot(data,live){
     '<b>Min</b> and <b>P75</b> are the route-level approaches (kanan1 / kanan2) — in this preview they are approximated from the DC-level values; the Colab engine computes them per origin→destination route. '+
     '<b>Rec (P80)</b> is the auto-pick; the Override column is your final decision (the old manual BZ:CC step).';
   initControls(); render();
+
+  // Extract mapping data from records (offset, time, state per DC)
+  if(data.records){
+    for(const r of data.records){
+      if(!MAPPING[r.dc]) MAPPING[r.dc]={offset:r.offset||0, time:r.time||'13:00', state:r.state||''};
+    }
+  }
+  // Set default contract start = first date in window
+  const cs=document.getElementById('cstart');
+  cs.value=data.meta.dates[0];
+  cs.min=data.meta.dates[0];cs.max=data.meta.dates[data.meta.dates.length-1];
+
+  // Export handler
+  document.getElementById('exportBtn').addEventListener('click',function(){
+    const dcs=buildDCs().filter(d=>d.ov>0);
+    if(!dcs.length){alert('No DCs with DR > 0 to export.');return;}
+    dcs.sort((a,b)=>a.region.localeCompare(b.region)||a.dc.localeCompare(b.dc));
+    const baseDate=document.getElementById('cstart').value;
+    const cdays=parseInt(document.getElementById('cdays').value)||4;
+    const rows=[];
+    let no=0;
+    for(const d of dcs){
+      no++;
+      const m=MAPPING[d.dc]||{offset:0,time:'13:00',state:''};
+      const startD=new Date(baseDate);
+      startD.setDate(startD.getDate()+m.offset);
+      const endD=new Date(startD);
+      endD.setDate(endD.getDate()+cdays);
+      const fmtD=dt=>{const y=dt.getFullYear(),mo=String(dt.getMonth()+1).padStart(2,'0'),dy=String(dt.getDate()).padStart(2,'0');return y+'-'+mo+'-'+dy;};
+      rows.push({
+        'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
+        'Origin State':m.state,
+        'Contract Period Start Date':fmtD(startD),
+        'Contract Period Start Time (HO)':m.time,
+        'Contract Period End Date':fmtD(endD),
+        'Contract Period End Time':m.time,
+        'Total Rent Days':cdays,
+        'Rent Hours (12/24 Jam)':'24',
+        'Services':'Daily Rent',
+        'Vehicle Type':'CDD L',
+        'Vehicle Quantity':d.ov
+      });
+    }
+    const ws=XLSX.utils.json_to_sheet(rows);
+    // Column widths
+    ws['!cols']=[{wch:14},{wch:4},{wch:14},{wch:30},{wch:20},{wch:18},{wch:18},{wch:18},{wch:18},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'DR Export');
+    // Summary row
+    const total=rows.reduce((s,r)=>s+r['Vehicle Quantity'],0);
+    XLSX.utils.sheet_add_aoa(ws,[['','','','','','','','','','','','Total CDD L','',total]],{origin:-1});
+    XLSX.writeFile(wb,'DR_Export_'+baseDate+'_'+cdays+'d.xlsx');
+  });
 }
 
 // Live-first, fall back to embedded sample
@@ -342,10 +406,12 @@ fetch('dr_results.json',{cache:'no-store'})
   .then(r=>{if(!r.ok)throw 0;return r.json();})
   .then(j=>{
     // normalize: engine emits {meta, records:[{dc,region,date,proj,cap_v5,cap_ideal}]}
+    const rawRecords=j.records||null;
     if(j.records){
       const dates=j.meta.dates, di={};dates.forEach((d,i)=>di[d]=i);
       j={meta:j.meta,cols:['dc','region','dateIdx','proj','cap_v5','cap_ideal'],
-         rows:j.records.map(r=>[r.dc,r.region,di[r.date],r.proj,r.cap_v5,r.cap_ideal])};
+         rows:j.records.map(r=>[r.dc,r.region,di[r.date],r.proj,r.cap_v5,r.cap_ideal]),
+         records:rawRecords};
     }
     boot(j,true);
   })
