@@ -263,8 +263,10 @@ function buildDCs(){
   const out=[];
   for(const k in map){
     const m=map[k];
-    const aNopol=truckFromGap(m.wGid,trips);
-    const aV5=truckFromGap(m.wGv5,trips);
+    // If capacity is 0, don't show any DR needs
+    const hasCap=m.sumCap>0;
+    const aNopol=hasCap?truckFromGap(m.wGid,trips):0;
+    const aV5=hasCap?truckFromGap(m.wGv5,trips):0;
     const nz=[aNopol,aV5].filter(x=>x>0);
     const aMin=nz.length?Math.min(...nz):0;                       // proxy for kanan1 (route-level in engine)
     const aP75=Math.round(quantile([aNopol,aV5,aMin],0.75));
