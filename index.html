@@ -192,7 +192,7 @@
 
 <script>
 const PT=4400, UTIL=0.9, THRESH=-1000;
-let DATA=null, DATES=[], SORT={key:'rec',dir:-1}, OVR={}, MAPPING={};
+let DATA=null, DATES=[], SORT={key:'rec',dir:-1}, OVR={}, MAPPING={}, RENAME={};
 
 function truckFromGap(gap, trips){            // replicate BO/BQ: floor(max(1, -gap/(4400*util*trips)))
   if(gap > THRESH) return 0;
@@ -365,8 +365,10 @@ function boot(data,live){
   if(data.records){
     for(const r of data.records){
       if(!MAPPING[r.dc]) MAPPING[r.dc]={offset:r.offset||0, time:r.time||'13:00', state:r.state||''};
+      if(r.rename_to) RENAME[r.dc]=r.rename_to;
     }
   }
+  if(Object.keys(RENAME).length) console.log('Rename map loaded:',RENAME);
   // Set default contract start = first date in window
   const cs=document.getElementById('cstart');
   cs.value=data.meta.dates[0];
@@ -423,10 +425,11 @@ function boot(data,live){
         const allFmDays=datelist(baseDate, cdays);
         const noSunday=allFmDays.filter(dt=>dt.getDay()!==0); // 0=Sunday
         const blocks=groupBlocks(noSunday);
+        const dcName=RENAME[d.dc]||d.dc;
         for(const b of blocks){
           no++;
           rows.push({
-            'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
+            'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':dcName,
             'Origin State':mp.state,
             'Contract Period Start Date':fmtD(b.start),
             'Contract Period Start Time (HO)':FM_TIME,
@@ -451,8 +454,9 @@ function boot(data,live){
         const lmEnd=new Date(lmStart);
         lmEnd.setDate(lmEnd.getDate()+cdays);
         const lmTime=isJava(d.region)?LM_JAVA_TIME:mp.time;
+        const dcName=RENAME[d.dc]||d.dc;
         rows.push({
-          'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
+          'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':dcName,
           'Origin State':mp.state,
           'Contract Period Start Date':fmtD(lmStart),
           'Contract Period Start Time (HO)':lmTime,
