@@ -379,43 +379,108 @@ function boot(data,live){
     dcs.sort((a,b)=>a.region.localeCompare(b.region)||a.dc.localeCompare(b.dc));
     const baseDate=document.getElementById('cstart').value;
     const cdays=parseInt(document.getElementById('cdays').value)||4;
+    const fmtD=dt=>{const y=dt.getFullYear(),mo=String(dt.getMonth()+1).padStart(2,'0'),dy=String(dt.getDate()).padStart(2,'0');return y+'-'+mo+'-'+dy;};
+
+    // Helper: generate date list for a period
+    function datelist(startStr, numDays){
+      const out=[];
+      const d=new Date(startStr);
+      for(let i=0;i<numDays;i++){
+        out.push(new Date(d));
+        d.setDate(d.getDate()+1);
+      }
+      return out;
+    }
+    // Helper: group consecutive dates into blocks (returns [{start,end,days}])
+    function groupBlocks(dates){
+      if(!dates.length) return [];
+      const blocks=[]; let bStart=dates[0], prev=dates[0];
+      for(let i=1;i<dates.length;i++){
+        const diff=(dates[i]-prev)/(86400000);
+        if(diff>1){
+          blocks.push({start:bStart, end:new Date(prev.getTime()+86400000), days:Math.round((prev-bStart)/86400000)+1});
+          bStart=dates[i];
+        }
+        prev=dates[i];
+      }
+      blocks.push({start:bStart, end:new Date(prev.getTime()+86400000), days:Math.round((prev-bStart)/86400000)+1});
+      return blocks;
+    }
+
     const rows=[];
     let no=0;
     for(const d of dcs){
-      no++;
-      const m=MAPPING[d.dc]||{offset:0,time:'13:00',state:''};
-      const startD=new Date(baseDate);
-      startD.setDate(startD.getDate()+m.offset);
-      const endD=new Date(startD);
-      endD.setDate(endD.getDate()+cdays);
-      const fmtD=dt=>{const y=dt.getFullYear(),mo=String(dt.getMonth()+1).padStart(2,'0'),dy=String(dt.getDate()).padStart(2,'0');return y+'-'+mo+'-'+dy;};
-      const fmS=d.sumFm||0,lmS=d.sumLm||0,totS=fmS+lmS||1;
+      const mp=MAPPING[d.dc]||{offset:0,time:'13:00',state:''};
+      const fmS=d.sumFm||0, lmS=d.sumLm||0, totS=fmS+lmS||1;
       const ovFm=Math.round(d.ov*(fmS/totS)), ovLm=d.ov-ovFm;
-      rows.push({
-        'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
-        'Origin State':m.state,
-        'Contract Period Start Date':fmtD(startD),
-        'Contract Period Start Time (HO)':m.time,
-        'Contract Period End Date':fmtD(endD),
-        'Contract Period End Time':m.time,
-        'Total Rent Days':cdays,
-        'Rent Hours (12/24 Jam)':'24',
-        'Services':'Daily Rent',
-        'Vehicle Type':'CDD L',
-        'Vehicle Quantity':d.ov,
-        'DR for FM':ovFm,
-        'DR for LM':ovLm,
-        'Type':d.drType
-      });
+
+      // === FM rows: start D+0, skip Sundays, split into blocks ===
+      if(ovFm>0){
+        const allFmDays=datelist(baseDate, cdays);
+        const noSunday=allFmDays.filter(dt=>dt.getDay()!==0); // 0=Sunday
+        const blocks=groupBlocks(noSunday);
+        for(const b of blocks){
+          no++;
+          rows.push({
+            'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
+            'Origin State':mp.state,
+            'Contract Period Start Date':fmtD(b.start),
+            'Contract Period Start Time (HO)':mp.time,
+            'Contract Period End Date':fmtD(b.end),
+            'Contract Period End Time':mp.time,
+            'Total Rent Days':b.days,
+            'Rent Hours (12/24 Jam)':'24',
+            'Services':'Daily Rent',
+            'Vehicle Type':'CDD L',
+            'Vehicle Quantity':ovFm,
+            'Catering':'FM',
+            'Note':blocks.length>1?'Sunday skip — part '+(blocks.indexOf(b)+1)+' of '+blocks.length:''
+          });
+        }
+      }
+
+      // === LM rows: start D+offset (per mapping/island), full contract days ===
+      if(ovLm>0){
+        no++;
+        const lmStart=new Date(baseDate);
+        lmStart.setDate(lmStart.getDate()+mp.offset);
+        const lmEnd=new Date(lmStart);
+        lmEnd.setDate(lmEnd.getDate()+cdays);
+        rows.push({
+          'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':d.dc,
+          'Origin State':mp.state,
+          'Contract Period Start Date':fmtD(lmStart),
+          'Contract Period Start Time (HO)':mp.time,
+          'Contract Period End Date':fmtD(lmEnd),
+          'Contract Period End Time':mp.time,
+          'Total Rent Days':cdays,
+          'Rent Hours (12/24 Jam)':'24',
+          'Services':'Daily Rent',
+          'Vehicle Type':'CDD L',
+          'Vehicle Quantity':ovLm,
+          'Catering':'LM',
+          'Note':mp.offset>0?'D+'+mp.offset+' offset':''
+        });
+      }
     }
     const ws=XLSX.utils.json_to_sheet(rows);
-    // Column widths
-    ws['!cols']=[{wch:14},{wch:4},{wch:14},{wch:30},{wch:20},{wch:18},{wch:18},{wch:18},{wch:18},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:10},{wch:10},{wch:8}];
+    ws['!cols']=[{wch:14},{wch:4},{wch:14},{wch:30},{wch:20},{wch:18},{wch:18},{wch:18},{wch:18},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:8},{wch:30}];
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'DR Export');
-    // Summary row
-    const total=rows.reduce((s,r)=>s+r['Vehicle Quantity'],0);
-    XLSX.utils.sheet_add_aoa(ws,[['','','','','','','','','','','','Total CDD L','',total]],{origin:-1});
+    // Summary rows
+    // Summary: count unique DC quantities (FM splits share the same trucks)
+    const fmByDc={}, lmByDc={};
+    rows.forEach(r=>{
+      if(r.Catering==='FM') fmByDc[r['Hub/DC Name']]=r['Vehicle Quantity'];
+      if(r.Catering==='LM') lmByDc[r['Hub/DC Name']]=r['Vehicle Quantity'];
+    });
+    const totFm=Object.values(fmByDc).reduce((s,v)=>s+v,0);
+    const totLm=Object.values(lmByDc).reduce((s,v)=>s+v,0);
+    XLSX.utils.sheet_add_aoa(ws,[
+      ['','','','','','','','','','','','','','Total FM:',totFm,'',''],
+      ['','','','','','','','','','','','','','Total LM:',totLm,'',''],
+      ['','','','','','','','','','','','','','Grand Total:',totFm+totLm,'','']
+    ],{origin:-1});
     XLSX.writeFile(wb,'DR_Export_'+baseDate+'_'+cdays+'d.xlsx');
   });
 }
