@@ -127,7 +127,7 @@
     <div class="kpi hero"><div class="k-label">Recommended additional DR</div>
       <div class="k-val mono" id="kpiRec">—</div><div class="k-sub" id="kpiRecSub">P80 across approaches</div></div>
     <div class="kpi"><div class="k-label">Your override total</div>
-      <div class="k-val mono" id="kpiOv">—</div><div class="k-sub">editable per DC →</div></div>
+      <div class="k-val mono" id="kpiOv">—</div><div class="k-sub" id="syncStatus">loading overrides...</div></div>
     <div class="kpi alert"><div class="k-label">DCs in deficit</div>
       <div class="k-val mono" id="kpiDef">—</div><div class="k-sub" id="kpiDefSub"></div></div>
     <div class="kpi"><div class="k-label">Peak demand day</div>
@@ -192,7 +192,38 @@
 
 <script>
 const PT=4400, UTIL=0.9, THRESH=-1000;
+const OVERRIDE_API='https://script.google.com/a/macros/spxexpress.com/s/AKfycbx35lfvrikw_6jGKHHwBhomtpPBY0f0Wj1ZPr_rw7ASc4SXk7O6vkUUyI8eGqsuqWWD/exec';
 let DATA=null, DATES=[], SORT={key:'rec',dir:-1}, OVR={}, MAPPING={}, RENAME={};
+
+function loadOverrides(){
+  return fetch(OVERRIDE_API)
+    .then(r=>r.json())
+    .then(data=>{
+      OVR=data;
+      var n=Object.keys(OVR).length;
+      document.getElementById('syncStatus').textContent='synced — '+n+' overrides from sheet';
+      console.log('Overrides loaded:',n);
+    })
+    .catch(e=>{
+      document.getElementById('syncStatus').textContent='offline — edits stay local';
+      console.warn('Override load failed:',e);
+    });
+}
+let _saveQueue=0;
+function saveOverride(dc,val){
+  _saveQueue++;
+  document.getElementById('syncStatus').textContent='saving...';
+  fetch(OVERRIDE_API,{method:'POST',mode:'no-cors',
+    body:JSON.stringify({dc:dc,value:val})
+  }).then(()=>{
+    _saveQueue--;
+    if(!_saveQueue) document.getElementById('syncStatus').textContent='saved to sheet ✓';
+  }).catch(e=>{
+    _saveQueue--;
+    document.getElementById('syncStatus').textContent='save failed — retry';
+    console.warn('Override save failed:',e);
+  });
+}
 
 function truckFromGap(gap, trips){            // replicate BO/BQ: floor(max(1, -gap/(4400*util*trips)))
   if(gap > THRESH) return 0;
@@ -306,6 +337,7 @@ function render(){
   fOv.textContent=rows.reduce((s,d)=>s+(d.ov||0),0);
 
   tb.querySelectorAll('input.ov').forEach(inp=>{
+    let _t;
     inp.addEventListener('input',e=>{
       const k=e.target.getAttribute('data-dc');
       OVR[k]=parseInt(e.target.value||'0',10);
@@ -314,6 +346,8 @@ function render(){
       const vis=buildDCs().filter(d=>(d.rec>0||(OVR[d.dc]||0)>0));
       fOv.textContent=vis.reduce((s,d)=>s+(d.ov||0),0);
       e.target.classList.toggle('changed', OVR[k]!==undefined);
+      clearTimeout(_t);
+      _t=setTimeout(()=>saveOverride(k,OVR[k]),500);
     });
   });
 }
@@ -359,7 +393,10 @@ function boot(data,live){
     '<b>Nopol</b> = vs ideal fleet capacity, <b>v5</b> = vs the live schedule. '+
     '<b>Min</b> and <b>P75</b> are the route-level approaches (kanan1 / kanan2) — in this preview they are approximated from the DC-level values; the Colab engine computes them per origin→destination route. '+
     '<b>Rec (P80)</b> is the auto-pick; the Override column is your final decision (the old manual BZ:CC step).';
-  initControls(); render();
+  initControls();
+  
+  // Load shared overrides from Google Sheet, then render
+  loadOverrides().then(()=>render()).catch(()=>render());
 
   // Extract mapping data from records (offset, time, state per DC)
   if(data.records){
