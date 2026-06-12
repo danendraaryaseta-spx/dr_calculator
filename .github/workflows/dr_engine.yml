@@ -2,14 +2,19 @@ name: DR Engine
 
 on:
   schedule:
-    - cron: '0 */6 * * *'    # every 6 hours
-  workflow_dispatch:           # manual trigger button
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   run-engine:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
