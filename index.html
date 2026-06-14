@@ -150,6 +150,8 @@
             <th class="l" data-sort="dc">DC <span class="arr"></span></th>
             <th class="l">Region</th>
             <th>Demand vs cap</th>
+            <th data-sort="capv5">Cap v5 <span class="arr"></span></th>
+            <th data-sort="capid">Cap Ideal <span class="arr"></span></th>
             <th data-sort="peak">Peak proj <span class="arr"></span></th>
             <th data-sort="gap">Worst gap <span class="arr"></span></th>
             <th class="col-app" data-sort="a0">Nopol <span class="arr"></span></th>
@@ -165,7 +167,7 @@
         </thead>
         <tbody id="tb"></tbody>
         <tfoot><tr>
-          <td class="l">Total (selected window)</td><td></td><td></td><td></td><td></td>
+          <td class="l">Total (selected window)</td><td></td><td></td><td></td><td></td><td></td><td></td>
           <td class="mono col-app" id="fA0"></td><td class="mono col-app" id="fA1"></td>
           <td class="mono col-app" id="fA2"></td><td class="mono col-app" id="fA3"></td>
           <td class="mono rec" id="fRec"></td><td></td><td class="mono" id="fFm"></td><td class="mono" id="fLm"></td><td class="mono" id="fOv"></td>
@@ -252,8 +254,9 @@ function buildDCs(){
   for(const r of RX){
     const di=r[2]; if(di<lo||di>hi) continue;
     const k=r[0];
-    if(!map[k]) map[k]={dc:r[0],region:r[1],peak:0,wGv5:Infinity,wGid:Infinity,sumDem:0,sumCap:0,days:0,sumFm:0,sumLm:0};
+    if(!map[k]) map[k]={dc:r[0],region:r[1],peak:0,wGv5:Infinity,wGid:Infinity,sumDem:0,sumCap:0,days:0,sumFm:0,sumLm:0,capV5:0,capIdeal:0};
     const m=map[k], proj=r[3], cv5=r[4], cid=r[5], fm=r[6]||0, lm=r[7]||0;
+    m.capV5=cv5; m.capIdeal=cid;
     m.peak=Math.max(m.peak,proj);
     m.wGv5=Math.min(m.wGv5, cv5-proj);
     m.wGid=Math.min(m.wGid, cid-proj);
@@ -305,11 +308,12 @@ function render(){
 
   // filter + sort table rows
   const reg=regionSel.value, q=qBox.value.trim().toLowerCase();
-  let rows=dcs.filter(d=>(d.rec>0||(OVR[d.dc]||0)>0));
+  let rows=dcs;
   if(reg) rows=rows.filter(d=>d.region===reg);
   if(q) rows=rows.filter(d=>d.dc.toLowerCase().includes(q));
   const key=SORT.key,dir=SORT.dir;
   const val=d=>key==='dc'?d.dc:key==='peak'?d.peak:key==='gap'?d.worst
+    :key==='capv5'?d.capV5:key==='capid'?d.capIdeal
     :key==='rec'?d.rec:key==='drtype'?d.drType:key==='drfm'?d.drFm:key==='drlm'?d.drLm
     :key.startsWith('a')?d.apps[+key[1]]:d.rec;
   rows.sort((a,b)=>{const x=val(a),y=val(b);return (x<y?-1:x>y?1:0)*dir});
@@ -329,6 +333,8 @@ function render(){
     tr.innerHTML=dcCell+
       '<td class="l region">'+d.region+'</td>'+
       '<td><div class="bar"><i class="cap"></i><i class="dem" style="width:'+demPct+'%"></i><i class="ovf" style="width:'+defPct+'%"></i></div></td>'+
+      '<td class="mono" style="color:var(--cap)">'+(d.capV5?fmt(d.capV5):'·')+'</td>'+
+      '<td class="mono" style="color:var(--muted)">'+(d.capIdeal?fmt(d.capIdeal):'·')+'</td>'+
       '<td class="mono">'+fmt(d.peak)+'</td>'+
       '<td class="mono '+(d.worst<0?'gap-neg':'zero')+'">'+(d.worst<0?fmt(d.worst):'0')+'</td>'+
       cell(0)+cell(1)+cell(2)+cell(3)+
