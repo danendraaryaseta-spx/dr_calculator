@@ -241,8 +241,8 @@ function quantile(arr,p){
 function fmt(n){return n==null?'—':Math.round(n).toLocaleString('en-US')}
 
 function buildDCs(){
-  const i0=+d0.value? DATES.indexOf(d0.value):0;
-  const i1=+d1.value!==undefined? DATES.indexOf(d1.value):DATES.length-1;
+  const i0=d0.value?DATES.indexOf(d0.value):0;
+  const i1=d1.value?DATES.indexOf(d1.value):DATES.length-1;
   const lo=Math.min(i0,i1), hi=Math.max(i0,i1);
   const trips=parseFloat(tripsSel.value)||3;
   UTIL=(parseFloat(document.getElementById('util').value)||90)/100;
