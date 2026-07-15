@@ -459,19 +459,34 @@ function boot(data,live){
       }
       return out;
     }
-    // Helper: group consecutive dates into blocks (returns [{start,end,days}])
-    function groupBlocks(dates){
-      if(!dates.length) return [];
-      const blocks=[]; let bStart=dates[0], prev=dates[0];
-      for(let i=1;i<dates.length;i++){
-        const diff=(dates[i]-prev)/(86400000);
-        if(diff>1){
-          blocks.push({start:bStart, end:new Date(prev.getTime()+86400000), days:Math.round((prev-bStart)/86400000)+1});
-          bStart=dates[i];
+    // Build the combined per-day timeline for one DC: which day(s) FM and/or LM
+    // are active, and the truck qty each implies. Days where both are active
+    // are capped at max(ovFm,ovLm) instead of summed — same physical truck pool
+    // covers both legs that day, so renting ovFm+ovLm would over-provision.
+    function buildTimeline(fmDays, ovFm, lmDays, ovLm){
+      const map=new Map(); // key: ms epoch -> {date, fm, lm}
+      fmDays.forEach(dt=>{ const k=dt.getTime(); if(!map.has(k)) map.set(k,{date:dt,fm:false,lm:false}); map.get(k).fm=true; });
+      lmDays.forEach(dt=>{ const k=dt.getTime(); if(!map.has(k)) map.set(k,{date:dt,fm:false,lm:false}); map.get(k).lm=true; });
+      return [...map.values()].sort((a,b)=>a.date-b.date).map(x=>({
+        date:x.date,
+        qty: Math.max(x.fm?ovFm:0, x.lm?ovLm:0),
+        tag: x.fm&&x.lm ? 'Both' : x.fm ? 'FM' : 'LM'
+      }));
+    }
+    // Group consecutive calendar days sharing the same {qty,tag} into one row-block.
+    function groupTimeline(days){
+      if(!days.length) return [];
+      const blocks=[]; let start=days[0].date, prev=days[0].date, qty=days[0].qty, tag=days[0].tag;
+      for(let i=1;i<days.length;i++){
+        const dt=days[i].date;
+        const sameGroup=(dt-prev)/86400000===1 && days[i].qty===qty && days[i].tag===tag;
+        if(!sameGroup){
+          blocks.push({start,end:new Date(prev.getTime()+86400000),days:Math.round((prev-start)/86400000)+1,qty,tag});
+          start=dt; qty=days[i].qty; tag=days[i].tag;
         }
-        prev=dates[i];
+        prev=dt;
       }
-      blocks.push({start:bStart, end:new Date(prev.getTime()+86400000), days:Math.round((prev-bStart)/86400000)+1});
+      blocks.push({start,end:new Date(prev.getTime()+86400000),days:Math.round((prev-start)/86400000)+1,qty,tag});
       return blocks;
     }
 
@@ -480,56 +495,44 @@ function boot(data,live){
     for(const d of dcs){
       const mp=MAPPING[d.dc]||{offset:0,time:'13:00',state:''};
       const ovFm=d.ovFm||0, ovLm=d.ovLm||0;
+      if(ovFm<=0 && ovLm<=0) continue;
 
-      // === FM rows: start D+0, skip Sundays, split into blocks ===
-      if(ovFm>0){
-        const allFmDays=datelist(baseDate, cdays);
-        const noSunday=allFmDays.filter(dt=>dt.getDay()!==0); // 0=Sunday
-        const blocks=groupBlocks(noSunday);
-        const dcName=RENAME[d.dc]||d.dc;
-        for(const b of blocks){
-          no++;
-          rows.push({
-            'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':dcName,
-            'Origin State':mp.state,
-            'Contract Period Start Date':fmtD(b.start),
-            'Contract Period Start Time (HO)':FM_TIME,
-            'Contract Period End Date':fmtD(b.end),
-            'Contract Period End Time':FM_TIME,
-            'Total Rent Days':b.days,
-            'Rent Hours (12/24 Jam)':'24',
-            'Services':'Daily Rent',
-            'Vehicle Type':'CDD L',
-            'Vehicle Quantity':ovFm,
-            'Catering':'FM',
-            'Note':blocks.length>1?'Sunday skip — part '+(blocks.indexOf(b)+1)+' of '+blocks.length:''
-          });
-        }
-      }
+      // FM: D+0 for cdays, skipping Sundays. LM: D+offset (per mapping/island) for cdays.
+      const fmDays = ovFm>0 ? datelist(baseDate, cdays).filter(dt=>dt.getDay()!==0) : [];
+      const lmStart=new Date(baseDate); lmStart.setDate(lmStart.getDate()+mp.offset);
+      const lmDays = ovLm>0 ? datelist(lmStart, cdays) : [];
+      const lmTime=isJava(d.region)?LM_JAVA_TIME:mp.time;
+      const dcName=RENAME[d.dc]||d.dc;
 
-      // === LM rows: start D+offset (per mapping/island), full contract days ===
-      if(ovLm>0){
+      const blocks=groupTimeline(buildTimeline(fmDays, ovFm, lmDays, ovLm));
+      const tagCounts={FM:0,LM:0,Both:0}; blocks.forEach(b=>tagCounts[b.tag]++);
+      const tagSeen={FM:0,LM:0,Both:0};
+      let offsetNoted=false;
+
+      for(const b of blocks){
         no++;
-        const lmStart=new Date(baseDate);
-        lmStart.setDate(lmStart.getDate()+mp.offset);
-        const lmEnd=new Date(lmStart);
-        lmEnd.setDate(lmEnd.getDate()+cdays);
-        const lmTime=isJava(d.region)?LM_JAVA_TIME:mp.time;
-        const dcName=RENAME[d.dc]||d.dc;
+        // FM leads the chain (FM > SOC > LM); a shared block follows FM's time
+        // unless this DC has no FM leg at all, in which case fall back to LM's.
+        const time = b.tag==='FM' ? FM_TIME : b.tag==='LM' ? lmTime : (ovFm>0?FM_TIME:lmTime);
+        tagSeen[b.tag]++;
+        const noteParts=[];
+        if(b.tag==='Both') noteParts.push('Shared FM+LM pool (max of '+ovFm+' FM, '+ovLm+' LM)');
+        if(tagCounts[b.tag]>1) noteParts.push('part '+tagSeen[b.tag]+' of '+tagCounts[b.tag]);
+        if((b.tag==='LM'||b.tag==='Both') && mp.offset>0 && !offsetNoted){ noteParts.push('D+'+mp.offset+' offset'); offsetNoted=true; }
         rows.push({
           'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':dcName,
           'Origin State':mp.state,
-          'Contract Period Start Date':fmtD(lmStart),
-          'Contract Period Start Time (HO)':lmTime,
-          'Contract Period End Date':fmtD(lmEnd),
-          'Contract Period End Time':lmTime,
-          'Total Rent Days':cdays,
+          'Contract Period Start Date':fmtD(b.start),
+          'Contract Period Start Time (HO)':time,
+          'Contract Period End Date':fmtD(b.end),
+          'Contract Period End Time':time,
+          'Total Rent Days':b.days,
           'Rent Hours (12/24 Jam)':'24',
           'Services':'Daily Rent',
           'Vehicle Type':'CDD L',
-          'Vehicle Quantity':ovLm,
-          'Catering':'LM',
-          'Note':mp.offset>0?'D+'+mp.offset+' offset':''
+          'Vehicle Quantity':b.qty,
+          'Catering':b.tag,
+          'Note':noteParts.join('; ')
         });
       }
     }
@@ -538,18 +541,18 @@ function boot(data,live){
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'DR Export');
     // Summary rows
-    // Summary: count unique DC quantities (FM splits share the same trucks)
-    const fmByDc={}, lmByDc={};
-    rows.forEach(r=>{
-      if(r.Catering==='FM') fmByDc[r['Hub/DC Name']]=r['Vehicle Quantity'];
-      if(r.Catering==='LM') lmByDc[r['Hub/DC Name']]=r['Vehicle Quantity'];
-    });
-    const totFm=Object.values(fmByDc).reduce((s,v)=>s+v,0);
-    const totLm=Object.values(lmByDc).reduce((s,v)=>s+v,0);
+    // Total FM / Total LM are informational (nationwide demand per leg).
+    // Grand Total is the actual truck count to procure: per DC, a shared block
+    // means the SAME trucks cover both legs, so its contribution is capped at
+    // max(ovFm,ovLm) rather than summed across FM+LM+Both rows (which would
+    // double- or triple-count that shared fleet, exactly the bug being fixed).
+    const totFm=dcs.reduce((s,d)=>s+(d.ovFm||0),0);
+    const totLm=dcs.reduce((s,d)=>s+(d.ovLm||0),0);
+    const grandTotal=dcs.reduce((s,d)=>s+Math.max(d.ovFm||0,d.ovLm||0),0);
     XLSX.utils.sheet_add_aoa(ws,[
       ['','','','','','','','','','','','','','Total FM:',totFm,'',''],
       ['','','','','','','','','','','','','','Total LM:',totLm,'',''],
-      ['','','','','','','','','','','','','','Grand Total:',totFm+totLm,'','']
+      ['','','','','','','','','','','','','','Grand Total:',grandTotal,'','']
     ],{origin:-1});
     XLSX.writeFile(wb,'DR_Export_'+baseDate+'_'+cdays+'d.xlsx');
   });
