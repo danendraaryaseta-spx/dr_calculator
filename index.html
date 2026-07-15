@@ -84,7 +84,7 @@
   .bar .ovf{right:0;width:var(--def);background:var(--deficit);opacity:.85}
   .col-app{color:var(--muted)}
   .rec{color:var(--rec);font-weight:600;background:var(--rec-bg)}
-  .ov{width:58px;text-align:right;padding:5px 7px;font-size:13px}
+  .ov{width:50px;text-align:right;padding:5px 7px;font-size:13px}
   .ov.changed{border-color:var(--accent);color:var(--accent)}
   .gap-neg{color:var(--deficit)}
   .zero{color:var(--faint)}
@@ -141,7 +141,7 @@
   <div class="tablecard">
     <div class="tbl-head">
       <h2>Per-DC breakdown</h2>
-      <div class="hint">Recommended is auto (P80). Four approaches are advisory. Override to set your decision.</div>
+      <div class="hint">Recommended is auto (P80). Four approaches are advisory. Override FM/LM to set your decision.</div>
     </div>
     <div class="scroll">
       <table id="t">
@@ -162,7 +162,8 @@
             <th data-sort="drtype">Type <span class="arr"></span></th>
             <th data-sort="drfm">DR FM <span class="arr"></span></th>
             <th data-sort="drlm">DR LM <span class="arr"></span></th>
-            <th>Override</th>
+            <th data-sort="ovfm">Ov. FM <span class="arr"></span></th>
+            <th data-sort="ovlm">Ov. LM <span class="arr"></span></th>
           </tr>
         </thead>
         <tbody id="tb"></tbody>
@@ -170,7 +171,7 @@
           <td class="l">Total (selected window)</td><td></td><td></td><td></td><td></td><td></td><td></td>
           <td class="mono col-app" id="fA0"></td><td class="mono col-app" id="fA1"></td>
           <td class="mono col-app" id="fA2"></td><td class="mono col-app" id="fA3"></td>
-          <td class="mono rec" id="fRec"></td><td></td><td class="mono" id="fFm"></td><td class="mono" id="fLm"></td><td class="mono" id="fOv"></td>
+          <td class="mono rec" id="fRec"></td><td></td><td class="mono" id="fFm"></td><td class="mono" id="fLm"></td><td class="mono" id="fOvFm"></td><td class="mono" id="fOvLm"></td>
         </tr></tfoot>
       </table>
     </div>
@@ -216,11 +217,11 @@ function loadOverrides(){
     });
 }
 let _saveQueue=0;
-function saveOverride(dc,val){
+function saveOverride(dc,part,val){
   _saveQueue++;
   document.getElementById('syncStatus').textContent='saving...';
   fetch(OVERRIDE_API,{method:'POST',mode:'no-cors',
-    body:JSON.stringify({dc:dc,value:val})
+    body:JSON.stringify({dc:dc,part:part,value:val})
   }).then(()=>{
     _saveQueue--;
     if(!_saveQueue) document.getElementById('syncStatus').textContent='saved to sheet ✓';
@@ -280,15 +281,16 @@ function buildDCs(){
     const fmPct=m.sumFm/total, lmPct=m.sumLm/total;
     const drFm=Math.round(rec*fmPct), drLm=rec-drFm;
     const drType=fmPct>0.8?'FM':lmPct>0.8?'LM':'Both';
-    out.push({...m,apps,rec,worst,fmPct,lmPct,drFm,drLm,drType,
-      ov: (OVR[k]!==undefined?OVR[k]:rec)});
+    const o=OVR[k]||{};
+    const ovFm=(o.fm!==undefined?o.fm:drFm), ovLm=(o.lm!==undefined?o.lm:drLm);
+    out.push({...m,apps,rec,worst,fmPct,lmPct,drFm,drLm,drType,ovFm,ovLm,ov:ovFm+ovLm});
   }
   return out;
 }
 
 function render(){
   const dcs=buildDCs();
-  const active=dcs.filter(d=>d.rec>0 || (OVR[d.dc]||0)>0);
+  const active=dcs.filter(d=>d.rec>0 || d.ov>0);
   // KPIs
   const totRec=active.reduce((s,d)=>s+d.rec,0);
   const totOv=dcs.reduce((s,d)=>s+(d.ov||0),0);
@@ -315,6 +317,7 @@ function render(){
   const val=d=>key==='dc'?d.dc:key==='peak'?d.peak:key==='gap'?d.worst
     :key==='capv5'?d.capV5:key==='capid'?d.capIdeal
     :key==='rec'?d.rec:key==='drtype'?d.drType:key==='drfm'?d.drFm:key==='drlm'?d.drLm
+    :key==='ovfm'?d.ovFm:key==='ovlm'?d.ovLm
     :key.startsWith('a')?d.apps[+key[1]]:d.rec;
   rows.sort((a,b)=>{const x=val(a),y=val(b);return (x<y?-1:x>y?1:0)*dir});
 
@@ -342,7 +345,8 @@ function render(){
       '<td class="mono" style="color:var(--'+(d.drType==='FM'?'accent':d.drType==='LM'?'cap':'muted')+')">'+d.drType+'</td>'+
       '<td class="mono">'+(d.drFm||'·')+'</td>'+
       '<td class="mono">'+(d.drLm||'·')+'</td>'+
-      '<td><input class="ov mono'+((OVR[d.dc]!==undefined&&OVR[d.dc]!==d.rec)?' changed':'')+'" type="number" min="0" value="'+d.ov+'" data-dc="'+d.dc.replace(/"/g,'&quot;')+'"></td>';
+      '<td><input class="ov mono'+(d.ovFm!==d.drFm?' changed':'')+'" type="number" min="0" value="'+d.ovFm+'" data-dc="'+d.dc.replace(/"/g,'&quot;')+'" data-part="fm"></td>'+
+      '<td><input class="ov mono'+(d.ovLm!==d.drLm?' changed':'')+'" type="number" min="0" value="'+d.ovLm+'" data-dc="'+d.dc.replace(/"/g,'&quot;')+'" data-part="lm"></td>';
     tb.appendChild(tr);
   }
   // footer
@@ -351,20 +355,23 @@ function render(){
   fRec.textContent=rows.reduce((s,d)=>s+d.rec,0);
   document.getElementById('fFm').textContent=rows.reduce((s,d)=>s+d.drFm,0);
   document.getElementById('fLm').textContent=rows.reduce((s,d)=>s+d.drLm,0);
-  fOv.textContent=rows.reduce((s,d)=>s+(d.ov||0),0);
+  fOvFm.textContent=rows.reduce((s,d)=>s+(d.ovFm||0),0);
+  fOvLm.textContent=rows.reduce((s,d)=>s+(d.ovLm||0),0);
 
   tb.querySelectorAll('input.ov').forEach(inp=>{
     let _t;
     inp.addEventListener('input',e=>{
-      const k=e.target.getAttribute('data-dc');
-      OVR[k]=parseInt(e.target.value||'0',10);
-      const totOv=buildDCs().reduce((s,d)=>s+(d.ov||0),0);
-      kpiOv.textContent=fmt(totOv);
-      const vis=buildDCs().filter(d=>(d.rec>0||(OVR[d.dc]||0)>0));
-      fOv.textContent=vis.reduce((s,d)=>s+(d.ov||0),0);
-      e.target.classList.toggle('changed', OVR[k]!==undefined);
+      const k=e.target.getAttribute('data-dc'), part=e.target.getAttribute('data-part');
+      if(!OVR[k]) OVR[k]={};
+      OVR[k][part]=parseInt(e.target.value||'0',10);
+      const dcs=buildDCs();
+      kpiOv.textContent=fmt(dcs.reduce((s,d)=>s+(d.ov||0),0));
+      const vis=dcs.filter(d=>(d.rec>0||d.ov>0));
+      fOvFm.textContent=vis.reduce((s,d)=>s+(d.ovFm||0),0);
+      fOvLm.textContent=vis.reduce((s,d)=>s+(d.ovLm||0),0);
+      e.target.classList.add('changed');
       clearTimeout(_t);
-      _t=setTimeout(()=>saveOverride(k,OVR[k]),500);
+      _t=setTimeout(()=>saveOverride(k,part,OVR[k][part]),500);
     });
   });
 }
@@ -398,7 +405,8 @@ const d0=document.getElementById('d0'),d1=document.getElementById('d1'),
   kpiPeakSub=document.getElementById('kpiPeakSub'),tb=document.getElementById('tb'),
   empty=document.getElementById('empty'),fA0=document.getElementById('fA0'),
   fA1=document.getElementById('fA1'),fA2=document.getElementById('fA2'),
-  fA3=document.getElementById('fA3'),fRec=document.getElementById('fRec'),fOv=document.getElementById('fOv');
+  fA3=document.getElementById('fA3'),fRec=document.getElementById('fRec'),
+  fOvFm=document.getElementById('fOvFm'),fOvLm=document.getElementById('fOvLm');
 
 function boot(data,live){
   DATA=data;
@@ -409,7 +417,7 @@ function boot(data,live){
     'Engine: per DC, the worst (most negative) gap of <b>scheduled capacity − projected volume</b> inside the selected window is converted to trucks via floor(−gap ÷ ('+PT+' × '+UTIL+' × trips)), only when the shortfall is worse than '+THRESH+' parcels. '+
     '<b>Nopol</b> = vs ideal fleet capacity, <b>v5</b> = vs the live schedule. '+
     '<b>Min</b> and <b>P75</b> are the route-level approaches (kanan1 / kanan2) — in this preview they are approximated from the DC-level values; the Colab engine computes them per origin→destination route. '+
-    '<b>Rec (P80)</b> is the auto-pick; the Override column is your final decision (the old manual BZ:CC step).';
+    '<b>Rec (P80)</b> is the auto-pick, split into <b>DR FM</b>/<b>DR LM</b> by each DC\'s demand share; <b>Ov. FM</b>/<b>Ov. LM</b> are your final decision per leg (the old manual BZ:CC step).';
   initControls();
   
   // Load shared overrides from Google Sheet, then render
@@ -471,8 +479,7 @@ function boot(data,live){
     let no=0;
     for(const d of dcs){
       const mp=MAPPING[d.dc]||{offset:0,time:'13:00',state:''};
-      const fmS=d.sumFm||0, lmS=d.sumLm||0, totS=fmS+lmS||1;
-      const ovFm=Math.round(d.ov*(fmS/totS)), ovLm=d.ov-ovFm;
+      const ovFm=d.ovFm||0, ovLm=d.ovLm||0;
 
       // === FM rows: start D+0, skip Sundays, split into blocks ===
       if(ovFm>0){
