@@ -463,30 +463,41 @@ function boot(data,live){
     // are active, and the truck qty each implies. Days where both are active
     // are capped at max(ovFm,ovLm) instead of summed — same physical truck pool
     // covers both legs that day, so renting ovFm+ovLm would over-provision.
+    // Tag by whichever leg's OWN quantity is actually driving that day's count
+    // (the subordinate leg's smaller need is already covered for free) — only
+    // a genuine tie (both legs equally sized) is ambiguous enough to call "Both".
+    // This means an overlap day merges seamlessly with the dominant leg's other
+    // days (same qty, same tag) instead of fragmenting into its own block.
     function buildTimeline(fmDays, ovFm, lmDays, ovLm){
       const map=new Map(); // key: ms epoch -> {date, fm, lm}
       fmDays.forEach(dt=>{ const k=dt.getTime(); if(!map.has(k)) map.set(k,{date:dt,fm:false,lm:false}); map.get(k).fm=true; });
       lmDays.forEach(dt=>{ const k=dt.getTime(); if(!map.has(k)) map.set(k,{date:dt,fm:false,lm:false}); map.get(k).lm=true; });
-      return [...map.values()].sort((a,b)=>a.date-b.date).map(x=>({
-        date:x.date,
-        qty: Math.max(x.fm?ovFm:0, x.lm?ovLm:0),
-        tag: x.fm&&x.lm ? 'Both' : x.fm ? 'FM' : 'LM'
-      }));
+      return [...map.values()].sort((a,b)=>a.date-b.date).map(x=>{
+        const fmQty=x.fm?ovFm:0, lmQty=x.lm?ovLm:0, qty=Math.max(fmQty,lmQty);
+        const fmWins=fmQty===qty, lmWins=lmQty===qty;
+        const tag = fmWins&&lmWins ? (ovFm>0?'Both':'LM') : fmWins ? 'FM' : 'LM';
+        return {date:x.date, qty, tag, shared:x.fm&&x.lm};
+      });
     }
     // Group consecutive calendar days sharing the same {qty,tag} into one row-block.
+    // `shared` marks a block where the subordinate leg was also active on at
+    // least one of its days (informational — the qty itself already accounts for it).
     function groupTimeline(days){
       if(!days.length) return [];
-      const blocks=[]; let start=days[0].date, prev=days[0].date, qty=days[0].qty, tag=days[0].tag;
+      const blocks=[];
+      let start=days[0].date, prev=days[0].date, qty=days[0].qty, tag=days[0].tag, shared=!!days[0].shared;
       for(let i=1;i<days.length;i++){
-        const dt=days[i].date;
-        const sameGroup=(dt-prev)/86400000===1 && days[i].qty===qty && days[i].tag===tag;
+        const cur=days[i];
+        const sameGroup=(cur.date-prev)/86400000===1 && cur.qty===qty && cur.tag===tag;
         if(!sameGroup){
-          blocks.push({start,end:new Date(prev.getTime()+86400000),days:Math.round((prev-start)/86400000)+1,qty,tag});
-          start=dt; qty=days[i].qty; tag=days[i].tag;
+          blocks.push({start,end:new Date(prev.getTime()+86400000),days:Math.round((prev-start)/86400000)+1,qty,tag,shared});
+          start=cur.date; qty=cur.qty; tag=cur.tag; shared=!!cur.shared;
+        } else if(cur.shared){
+          shared=true;
         }
-        prev=dt;
+        prev=cur.date;
       }
-      blocks.push({start,end:new Date(prev.getTime()+86400000),days:Math.round((prev-start)/86400000)+1,qty,tag});
+      blocks.push({start,end:new Date(prev.getTime()+86400000),days:Math.round((prev-start)/86400000)+1,qty,tag,shared});
       return blocks;
     }
 
@@ -517,6 +528,7 @@ function boot(data,live){
         tagSeen[b.tag]++;
         const noteParts=[];
         if(b.tag==='Both') noteParts.push('Shared FM+LM pool (max of '+ovFm+' FM, '+ovLm+' LM)');
+        else if(b.shared) noteParts.push('Also covers '+(b.tag==='FM'?'LM ('+ovLm+')':'FM ('+ovFm+')')+' demand via same pool');
         if(tagCounts[b.tag]>1) noteParts.push('part '+tagSeen[b.tag]+' of '+tagCounts[b.tag]);
         if((b.tag==='LM'||b.tag==='Both') && mp.offset>0 && !offsetNoted){ noteParts.push('D+'+mp.offset+' offset'); offsetNoted=true; }
         rows.push({
