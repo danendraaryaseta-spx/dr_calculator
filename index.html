@@ -33,6 +33,9 @@
   .src b{color:var(--muted);font-weight:500}
   .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--cap);margin-right:5px;vertical-align:1px}
   .dot.embed{background:var(--accent)}
+  .engine-run{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+  .engine-run button{background:var(--rec-bg);border-color:var(--rec);color:var(--rec);font-weight:600}
+  .engine-run button:disabled{opacity:.5;cursor:default}
   /* controls */
   .controls{display:flex;flex-wrap:wrap;gap:14px 18px;align-items:flex-end;
     background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
@@ -106,6 +109,10 @@
       <div class="sub">Projection vs scheduled capacity → additional trucks needed, by date range</div>
     </div>
     <div class="src" id="src"></div>
+    <div class="engine-run">
+      <button id="runEngineBtn">▶ Run DR Engine</button>
+      <div class="k-sub" id="runEngineStatus"></div>
+    </div>
   </header>
 
   <div class="controls">
@@ -408,6 +415,23 @@ const d0=document.getElementById('d0'),d1=document.getElementById('d1'),
   fA3=document.getElementById('fA3'),fRec=document.getElementById('fRec'),
   fOvFm=document.getElementById('fOvFm'),fOvLm=document.getElementById('fOvLm');
 
+// Triggers the "DR Engine" GitHub Actions workflow via a dedicated Apps Script
+// Web App proxy (holds the GitHub token server-side — never exposed here).
+const RUN_ENGINE_API='PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE';
+(function(){
+  const btn=document.getElementById('runEngineBtn'), status=document.getElementById('runEngineStatus');
+  btn.addEventListener('click',()=>{
+    btn.disabled=true; status.textContent='triggering...';
+    fetch(RUN_ENGINE_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({})})
+      .then(r=>r.json())
+      .then(data=>{
+        status.textContent = data.ok ? 'triggered ✓ — results update in ~2-3 min' : 'failed: '+(data.error||('HTTP '+data.status)||'unknown');
+      })
+      .catch(e=>{ status.textContent='failed — network error'; console.warn('Run engine failed:',e); })
+      .finally(()=>{ setTimeout(()=>{btn.disabled=false;},30000); }); // cooldown, avoid double-dispatch
+  });
+})();
+
 function boot(data,live){
   DATA=data;
   document.getElementById('src').innerHTML=
@@ -463,19 +487,25 @@ function boot(data,live){
     // are active, and the truck qty each implies. Days where both are active
     // are capped at max(ovFm,ovLm) instead of summed — same physical truck pool
     // covers both legs that day, so renting ovFm+ovLm would over-provision.
-    // Tag by whichever leg's OWN quantity is actually driving that day's count
-    // (the subordinate leg's smaller need is already covered for free) — only
-    // a genuine tie (both legs equally sized) is ambiguous enough to call "Both".
-    // This means an overlap day merges seamlessly with the dominant leg's other
-    // days (same qty, same tag) instead of fragmenting into its own block.
+    // Tag by comparing the day's qty against the DC's CONSTANT leg sizes
+    // (ovFm/ovLm), not against which leg is literally active that specific
+    // day — once a quantity is established (dominant leg, or a genuine tie),
+    // a trailing same-quantity day (e.g. LM alone finishing out a tied block
+    // after FM's own window ends) still belongs to that same commitment, so
+    // it merges instead of fragmenting into a separate row with a new time.
+    // A tie (ovFm===ovLm) means the WHOLE combined footprint — FM's start
+    // through whichever leg's own window ends later — becomes one "Both"
+    // block on FM's time; otherwise the block is tagged/timed by whichever
+    // leg's own constant equals the qty (the subordinate leg's smaller need
+    // is already covered for free).
     function buildTimeline(fmDays, ovFm, lmDays, ovLm){
       const map=new Map(); // key: ms epoch -> {date, fm, lm}
       fmDays.forEach(dt=>{ const k=dt.getTime(); if(!map.has(k)) map.set(k,{date:dt,fm:false,lm:false}); map.get(k).fm=true; });
       lmDays.forEach(dt=>{ const k=dt.getTime(); if(!map.has(k)) map.set(k,{date:dt,fm:false,lm:false}); map.get(k).lm=true; });
       return [...map.values()].sort((a,b)=>a.date-b.date).map(x=>{
-        const fmQty=x.fm?ovFm:0, lmQty=x.lm?ovLm:0, qty=Math.max(fmQty,lmQty);
-        const fmWins=fmQty===qty, lmWins=lmQty===qty;
-        const tag = fmWins&&lmWins ? (ovFm>0?'Both':'LM') : fmWins ? 'FM' : 'LM';
+        const qty=Math.max(x.fm?ovFm:0, x.lm?ovLm:0);
+        const fmMatches=qty===ovFm, lmMatches=qty===ovLm;
+        const tag = fmMatches&&lmMatches ? 'Both' : fmMatches ? 'FM' : 'LM';
         return {date:x.date, qty, tag, shared:x.fm&&x.lm};
       });
     }
