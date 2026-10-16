@@ -16,6 +16,11 @@ OVERPROJECTION    = 1.10
 IDEAL_FACTOR      = 0.85
 THRESHOLD         = -1000
 
+# Regular (scheduled) Daily Rent per DC. These trucks run every day but are not in
+# data_unit_nasional, so without them the ideal (fleet) capacity counts a DR-heavy DC as short.
+REG_DR_SHEET_ID   = "14f5KHHTrJlEeFcFOyQ-VYFhD9WM3pSx0gL8xQlSIAts"   # [LH] Active Daily Rent
+REG_DR_TAB        = "Summary CDDL | DC Level"                        # col B = DC, col D = Regular (latest day)
+
 TAB = dict(
     fm="FM Projection",
     lm="LM Projection",
@@ -192,12 +197,30 @@ if "Health" in u.columns:
     u = u[u["Health"].astype(str).str.upper() != "DT"]
 
 cnt = u.groupby(u_dc).size().rename("units")
+
+# Regular DR joins the in-house fleet in the ideal capacity.
+reg_dr = pd.Series(dtype=float, name="reg_dr")
+reg_dr_loaded = False
+try:
+    rv = gc.open_by_key(REG_DR_SHEET_ID).worksheet(REG_DR_TAB).get_all_values()
+    hdr = next(i for i, r in enumerate(rv) if len(r) > 3 and r[1].strip() == "DC")
+    vals = {}
+    for r in rv[hdr + 1:]:
+        if len(r) > 3 and r[1].strip():
+            n = pd.to_numeric(str(r[3]).replace(",", ""), errors="coerce")
+            if pd.notna(n) and n > 0:
+                vals[r[1].strip()] = vals.get(r[1].strip(), 0) + float(n)
+    reg_dr = pd.Series(vals, name="reg_dr")
+    reg_dr_loaded = True
+    print(f"  Regular DR ({rv[hdr][3]}): {int(reg_dr.sum())} trucks across {len(reg_dr)} DCs")
+except Exception as e:
+    print(f"  !! Regular DR not loaded ({e}) - ideal capacity uses in-house units only")
+
+fleet = pd.concat([cnt, reg_dr], axis=1).fillna(0)
 ideal = (
-    (cnt * 3 * PARCELS_PER_TRUCK * IDEAL_FACTOR)
-    .rename("cap_ideal")
-    .reset_index()
-    .rename(columns={u_dc: "dc"})
-)
+    (fleet["units"] + fleet["reg_dr"]) * 3 * PARCELS_PER_TRUCK * IDEAL_FACTOR
+).rename("cap_ideal").rename_axis("dc").reset_index()
+ideal["reg_dr"] = ideal["dc"].map(fleet["reg_dr"]).fillna(0)
 print(f"  DCs with ideal capacity: {len(ideal)}")
 
 # ---- ASSEMBLE ----
@@ -208,10 +231,10 @@ reg_col, dc_col = ac.columns[0], ac.columns[1]
 region = ac.set_index(dc_col)[reg_col].to_dict()
 
 df = demand.merge(cap_v5, on="dc", how="left").merge(ideal, on="dc", how="left")
-df[["cap_v5", "cap_ideal"]] = df[["cap_v5", "cap_ideal"]].fillna(0)
+df[["cap_v5", "cap_ideal", "reg_dr"]] = df[["cap_v5", "cap_ideal", "reg_dr"]].fillna(0)
 df["region"] = df["dc"].map(region).fillna("")
 df = df[(df["proj"] > 0) | (df["cap_v5"] > 0) | (df["cap_ideal"] > 0)]
-records = df[["dc", "region", "date", "proj", "fm", "lm", "cap_v5", "cap_ideal"]].round(1).to_dict("records")
+records = df[["dc", "region", "date", "proj", "fm", "lm", "cap_v5", "cap_ideal", "reg_dr"]].round(1).to_dict("records")
 
 # ---- DEBUG: spot check a big DC ----
 check_dc = "Transit Point Kalideres DC"
@@ -287,6 +310,7 @@ payload = {
             "trips_default": TRIPS_LM,
             "threshold": THRESHOLD,
             "overprojection": OVERPROJECTION,
+            "reg_dr_in_ideal": reg_dr_loaded,
         },
         "dates": dates,
     },
