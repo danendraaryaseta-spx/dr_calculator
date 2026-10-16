@@ -446,7 +446,7 @@ function boot(data,live){
   document.getElementById('note').innerHTML=
     'Engine: per DC, the worst (most negative) gap of <b>scheduled capacity − projected volume</b> inside the selected window is converted to trucks via floor(−gap ÷ ('+PT+' × '+UTIL+' × trips)), only when the shortfall is worse than '+THRESH+' parcels. '+
     '<b>Nopol</b> = vs ideal fleet capacity (in-house units + regular Daily Rent'+(data.meta.params&&data.meta.params.reg_dr_in_ideal?'':' &mdash; <b style="color:var(--deficit)">regular DR not loaded this run, in-house only</b>')+'), <b>v5</b> = vs the live schedule. '+
-    '<b>Transit Points</b> (Jabodetabek) with no calculated need get the <b>TP min / day</b> and export at 13:00, 24h, every contract day. '+
+    '<b>Transit Points</b> (Jabodetabek) with no calculated need get the <b>TP min / day</b> (as LM, exported like any other DC). '+
     '<b>Min</b> and <b>P75</b> are the route-level approaches (kanan1 / kanan2) — in this preview they are approximated from the DC-level values; the Colab engine computes them per origin→destination route. '+
     '<b>Rec (P80)</b> is the auto-pick, split into <b>DR FM</b>/<b>DR LM</b> by each DC\'s demand share; <b>Ov. FM</b>/<b>Ov. LM</b> are your final decision per leg (the old manual BZ:CC step).';
   initControls();
@@ -479,7 +479,6 @@ function boot(data,live){
     const isJava=reg=>JAVA.includes(reg);
     const FM_TIME='13:00';   // FM nationwide
     const LM_JAVA_TIME='08:00';  // LM in Java
-    const TP_TIME='13:00';       // Jabodetabek Transit Points (10.10 schedule)
 
     // Helper: generate date list for a period
     function datelist(startStr, numDays){
@@ -552,17 +551,6 @@ function boot(data,live){
       const lmDays = ovLm>0 ? datelist(lmStart, cdays) : [];
       const lmTime=isJava(d.region)?LM_JAVA_TIME:mp.time;
       const dcName=RENAME[d.dc]||d.dc;
-      if(d.isTP){
-        no++;
-        const s0=new Date(baseDate), e0=new Date(baseDate); e0.setDate(e0.getDate()+cdays);
-        rows.push({'Region':d.region,'No':no,'Function/User':'LH','Hub/DC Name':dcName,'Origin State':mp.state,
-          'Contract Period Start Date':fmtD(s0),'Contract Period Start Time (HO)':TP_TIME,
-          'Contract Period End Date':fmtD(e0),'Contract Period End Time':TP_TIME,'Total Rent Days':cdays,
-          'Rent Hours (12/24 Jam)':'24','Services':'Daily Rent','Vehicle Type':'CDD L',
-          'Vehicle Quantity':Math.max(ovFm,ovLm),'Catering':'TP',
-          'Note':d.apps.some(x=>x>0)?'Transit Point (calculator need)':'Transit Point (minimum per day)'});
-        continue;
-      }
 
       const blocks=groupTimeline(buildTimeline(fmDays, ovFm, lmDays, ovLm));
       const tagCounts={FM:0,LM:0,Both:0}; blocks.forEach(b=>tagCounts[b.tag]++);
