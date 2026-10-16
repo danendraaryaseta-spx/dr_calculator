@@ -292,7 +292,7 @@ function buildDCs(){
     // Jabodetabek Transit Points: the engine has no TP capacity data, so a TP with no
     // calculated need still gets the campaign minimum (as in the 10.10 request).
     const isTP=isTransitPoint(m.dc,m.region), tpMin=parseInt((document.getElementById('tpmin')||{}).value)||0;
-    if(isTP && rec===0 && tpMin>0){drFm=0;drLm=tpMin;}
+    if(isTP && rec===0 && tpMin>0){drFm=tpMin;drLm=0;}
     const drType=fmPct>0.8?'FM':lmPct>0.8?'LM':'Both';
     const o=OVR[k]||{};
     const ovFm=(o.fm!==undefined?o.fm:drFm), ovLm=(o.lm!==undefined?o.lm:drLm);
@@ -446,7 +446,7 @@ function boot(data,live){
   document.getElementById('note').innerHTML=
     'Engine: per DC, the worst (most negative) gap of <b>scheduled capacity − projected volume</b> inside the selected window is converted to trucks via floor(−gap ÷ ('+PT+' × '+UTIL+' × trips)), only when the shortfall is worse than '+THRESH+' parcels. '+
     '<b>Nopol</b> = vs ideal fleet capacity (in-house units + regular Daily Rent'+(data.meta.params&&data.meta.params.reg_dr_in_ideal?'':' &mdash; <b style="color:var(--deficit)">regular DR not loaded this run, in-house only</b>')+'), <b>v5</b> = vs the live schedule. '+
-    '<b>Transit Points</b> (Jabodetabek) with no calculated need get the <b>TP min / day</b> (as LM, exported like any other DC). '+
+    '<b>Transit Points</b> (Jabodetabek) with no calculated need get the <b>TP min / day</b> (TPs serve FM, so it is booked and exported as FM). '+
     '<b>Min</b> and <b>P75</b> are the route-level approaches (kanan1 / kanan2) — in this preview they are approximated from the DC-level values; the Colab engine computes them per origin→destination route. '+
     '<b>Rec (P80)</b> is the auto-pick, split into <b>DR FM</b>/<b>DR LM</b> by each DC\'s demand share; <b>Ov. FM</b>/<b>Ov. LM</b> are your final decision per leg (the old manual BZ:CC step).';
   initControls();

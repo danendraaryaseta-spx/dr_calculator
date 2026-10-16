@@ -23,7 +23,7 @@ Per DC, for the window selected on the page:
 - **Nopol** = trucks vs Cap Ideal, **v5** = trucks vs Cap v5, **Min** / **P75** derived from those; **Rec (P80)** = 80th percentile of the four.
 - Rec is split into **DR FM / DR LM** by the DC's FM/LM demand share. **Ov. FM / Ov. LM** are the editable final numbers.
 - **Jabodetabek Transit Points** have no capacity data in the engine, so a TP with no calculated need gets the
-  **TP min / day** (default 2, booked as LM). A TP with a calculated need keeps it.
+  **TP min / day** (default 2, booked as FM since TPs serve FM). A TP with a calculated need keeps it.
 
 Backtest on 10.10 (10–13 Oct 2026, ~300 extra DR actually onsite at DCs): in-house-only Rec 367, v5 only 103,
 Rec with regular DR 268 — the closest, which is why regular DR is part of Cap Ideal.
@@ -35,5 +35,5 @@ Contract start + contract days (default 4):
 - **FM**: from the start date, Sundays skipped, 13:00.
 - **LM**: from start date + the DC's offset (`mapping` tab), 08:00 in Java, mapping time elsewhere.
 - Where FM and LM days overlap, one shared pool sized to the bigger leg covers both, so some rows are shorter or longer than the contract days.
-- **Transit Points** follow the same FM/LM rules; the TP minimum is booked as LM.
+- **Transit Points** follow the same FM/LM rules; the TP minimum is booked as FM.
 - **Grand Total** = per DC max(Ov. FM, Ov. LM) — the trucks to procure.
