@@ -157,7 +157,9 @@ drop = pd.Series(dtype=float)
 for socc in SCOL["soc"]:
     if socc in s.columns:
         s[socc] = s[socc].astype(str).str.strip()
-        drop = drop.add(s[s[socc] != ""].groupby(socc)[sc_cfm].sum(), fill_value=0)
+        # only trucks from another DC add capacity here; a truck dropping at its own origin is already in prim
+        other = s[(s[socc] != "") & (s[socc] != s[sc_org].astype(str).str.strip())]
+        drop = drop.add(other.groupby(socc)[sc_cfm].sum(), fill_value=0)
 
 cap_v5 = prim.add(drop, fill_value=0).rename_axis("dc").rename("cap_v5").reset_index()
 print(f"  DCs with scheduled capacity: {len(cap_v5)}")
